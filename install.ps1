@@ -25,6 +25,24 @@ function Install-VideoEditor {
         $env:Path = (@($machine, $user) + $extra | Where-Object { $_ }) -join ";"
     }
     function Have($name) { return [bool](Get-Command $name -ErrorAction SilentlyContinue) }
+    # Native commands (gh, claude) can write to stderr. Under $ErrorActionPreference = 'Stop' that becomes a
+    # terminating error and kills the installer. These two helpers use the exit code only and never throw.
+    function Native-Code([scriptblock]$sb) {
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        $global:LASTEXITCODE = 0
+        try { & $sb *> $null } catch { if ($global:LASTEXITCODE -eq 0) { $global:LASTEXITCODE = 1 } }
+        $code = $global:LASTEXITCODE
+        $ErrorActionPreference = $old
+        return [int]$code
+    }
+    function Native-Text([scriptblock]$sb) {
+        $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        $out = ""
+        try { $out = (& $sb 2>$null) -join "`n" } catch { }
+        $ErrorActionPreference = $old
+        return $out
+    }
+    $ErrorActionPreference = 'Continue'   # the official Claude Code installer used to leave this as Stop
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -80,7 +98,9 @@ function Install-VideoEditor {
     if (Have "claude") { Ok "Claude Code is already installed" }
     else {
         Say "  Installing Claude Code (official installer)..."
-        try { Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression } catch { }
+        # Run it in its own PowerShell process so it cannot change this session's settings (it sets ErrorActionPreference to Stop).
+        try { powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://claude.ai/install.ps1 | iex" | Out-Host } catch { }
+        $ErrorActionPreference = 'Continue'
         Refresh-Path
         if (-not (Have "claude")) {
             Stop-Here 2 "Claude Code did not install." @("Close this window and open a new PowerShell.", "Type: irm https://claude.ai/install.ps1 | iex", "Then run the Pugh.ai Video Editor line again.")
@@ -98,24 +118,21 @@ function Install-VideoEditor {
 
     # ---- Step 3: GitHub sign-in
     Say "Step 3 of ${Total}: GitHub sign-in..."
-    gh auth status *> $null
-    if ($LASTEXITCODE -eq 0) { Ok "already signed in to GitHub" }
+    if ((Native-Code { gh auth status }) -eq 0) { Ok "already signed in to GitHub" }
     else {
         Say "  A browser window will open. Copy the code shown here, paste it on the page, and click Authorize."
-        gh auth login -h github.com -p https -w
-        gh auth status *> $null
-        if ($LASTEXITCODE -ne 0) {
+        try { gh auth login -h github.com -p https -w } catch { }
+        if ((Native-Code { gh auth status }) -ne 0) {
             Stop-Here 3 "GitHub sign-in did not finish." @("Type: gh auth login   and choose GitHub.com, HTTPS, 'Login with a web browser'.")
             return
         }
         Ok "signed in"
     }
-    gh auth setup-git | Out-Null
+    [void](Native-Code { gh auth setup-git })
 
     # ---- Step 4: access to the private kit
     Say "Step 4 of ${Total}: checking you can see the Pugh.ai Video Editor kit..."
-    gh repo view $Repo --json name *> $null
-    if ($LASTEXITCODE -ne 0) {
+    if ((Native-Code { gh repo view $Repo --json name }) -ne 0) {
         Stop-Here 4 "your GitHub account cannot see the kit yet." @("Accept your GitHub invite email first (search your inbox for an invitation from pughs-editor).", "Make sure you signed in with the same GitHub account the invite was sent to.", "If you cannot find the email, tell the seller your GitHub username.")
         return
     }
@@ -127,20 +144,20 @@ function Install-VideoEditor {
     Say "Step 5 of ${Total}: installing the Pugh.ai Video Editor plugin..."
     New-Item -ItemType Directory -Force -Path $Home2 | Out-Null
     Set-Location $Home2
-    $markets = (claude plugin marketplace list 2>$null) -join "`n"
+    $markets = Native-Text { claude plugin marketplace list }
     if ($markets -match $Market) { Ok "kit source already added" }
     else {
-        claude plugin marketplace add $Repo | Out-Host
-        if ($LASTEXITCODE -ne 0) {
+        $code = Native-Code { claude plugin marketplace add $Repo | Out-Host }
+        if ($code -ne 0) {
             Stop-Here 5 "could not add the kit source." @("Type: gh auth status   to check you are signed in.", "If you see an SSH or permission error, type: setx CLAUDE_CODE_PLUGIN_PREFER_HTTPS 1   then open a new PowerShell and run the line again.")
             return
         }
     }
-    $installed = (claude plugin list 2>$null) -join "`n"
+    $installed = Native-Text { claude plugin list }
     if ($installed -match "video-editor@") { Ok "plugin already installed" }
     else {
-        claude plugin install $Plugin | Out-Host
-        if ($LASTEXITCODE -ne 0) {
+        $code = Native-Code { claude plugin install $Plugin | Out-Host }
+        if ($code -ne 0) {
             Stop-Here 5 "could not install the plugin." @("Run the line again. If it fails twice, tell the seller exactly what you see.")
             return
         }
