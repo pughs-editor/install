@@ -32,6 +32,24 @@ if [ "$(uname -m)" != "arm64" ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)
   echo "This Mac has an Intel chip. The Pugh.ai Video Editor needs a Mac with Apple Silicon (M1 or newer), so it cannot be installed here."; exit 1
 fi
 [ "$(id -u)" = "0" ] && { echo "Please run this as your normal user, not with sudo."; exit 1; }
+
+# Check this Mac BEFORE installing anything (nothing below runs if it fails).
+RAM_GB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+FREE_GB=$(df -g "$HOME" | awk 'NR==2{print $4}')
+if [ "$RAM_GB" -lt 8 ]; then
+  echo "Cannot install on this Mac: it has $RAM_GB GB of memory and the Pugh.ai Video Editor needs at least 8 GB. Nothing was installed or changed."; exit 1
+fi
+if [ "${FREE_GB:-0}" -lt 15 ]; then
+  echo "Cannot install on this Mac: only ${FREE_GB:-0} GB of free disk space and about 15 GB are needed. Free some space, then run the line again. Nothing was installed or changed."; exit 1
+fi
+echo "Computer check passed: Apple Silicon, $RAM_GB GB memory, $FREE_GB GB free disk."
+
+# Keep the Mac awake for the whole install and the Claude setup it starts (caffeinate ends when this script,
+# or the claude process that replaces it at the end, exits). Changes no setting.
+if command -v caffeinate >/dev/null 2>&1; then
+  caffeinate -i -w $$ >/dev/null 2>&1 &
+  echo "Tip: plug in your MacBook and leave this window open. Setup can take up to 30 minutes. Your Mac will stay awake while it runs."
+fi
 add_brew_path
 
 echo

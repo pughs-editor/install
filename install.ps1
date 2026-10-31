@@ -31,6 +31,28 @@ function Install-VideoEditor {
         Write-Host "This window is running as administrator. Please close it, open a normal PowerShell (Start menu, type PowerShell, press Enter) and paste the line again." -ForegroundColor Yellow
         return
     }
+    # ---- Check this computer BEFORE installing anything (nothing below runs if it fails)
+    $os = Get-CimInstance Win32_OperatingSystem
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $ramGb = [math]::Round($cs.TotalPhysicalMemory / 1GB)
+    $checkRoot = if ($env:VIDEOEDITOR_HOME) { $env:VIDEOEDITOR_HOME } else { $HOME }
+    $drv = (Split-Path -Qualifier $checkRoot).TrimEnd(':')
+    $freeGb = [math]::Round((Get-PSDrive $drv).Free / 1GB, 1)
+    $buildNo = [int]$os.BuildNumber
+    $problem = $null
+    if (-not [Environment]::Is64BitOperatingSystem) { $problem = "This is 32-bit Windows. The Pugh.ai Video Editor needs 64-bit Windows 10 or 11." }
+    elseif ([Environment]::OSVersion.Version.Major -lt 10 -or $buildNo -lt 10240) { $problem = "This Windows is too old. The Pugh.ai Video Editor needs Windows 10 or Windows 11 (64-bit)." }
+    elseif ($ramGb -lt 8) { $problem = "This computer has $ramGb GB of memory. The Pugh.ai Video Editor needs at least 8 GB." }
+    elseif ($freeGb -lt 15) { $problem = "Only $freeGb GB of free disk space on drive ${drv}:. The Pugh.ai Video Editor needs about 15 GB free. Free some space, then run the line again." }
+    if ($problem) {
+        Write-Host ""
+        Write-Host "Cannot install on this computer: $problem" -ForegroundColor Yellow
+        Write-Host "Nothing was installed or changed." -ForegroundColor Yellow
+        return
+    }
+    Write-Host "Computer check passed: $ramGb GB memory, $freeGb GB free disk, 64-bit Windows." -ForegroundColor Green
+    Write-Host "Tip: plug in your laptop and leave this window open. Setup can take up to 30 minutes. This installer keeps the PC awake while it runs." -ForegroundColor White
+
     if (-not (Have "winget")) {
         Write-Host "Windows Package Manager (winget) was not found. Open the Microsoft Store, search for 'App Installer', click Update or Get, then run the line again." -ForegroundColor Yellow
         return
@@ -137,4 +159,11 @@ function Install-VideoEditor {
     claude "/video-editor:editor-setup"
 }
 
-Install-VideoEditor
+# Keep Windows awake while the installer (and the Claude setup it starts) runs. No admin, changes no setting;
+# the request is cleared when this finishes.
+try {
+    Add-Type -Namespace Win32 -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -ErrorAction Stop
+    [void][Win32.Power]::SetThreadExecutionState([uint32]2147483649)   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+} catch { }
+try { Install-VideoEditor }
+finally { try { [void][Win32.Power]::SetThreadExecutionState([uint32]2147483648) } catch { } }
