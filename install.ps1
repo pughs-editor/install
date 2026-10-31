@@ -67,6 +67,13 @@ function Install-VideoEditor {
         Ok "Claude Code installed"
     }
 
+    # Make sure a NEW PowerShell can find claude (the official installer normally does this; this is a safety net).
+    $lb = "$HOME\.local\bin"
+    if ((Test-Path "$lb\claude.exe") -and (([Environment]::GetEnvironmentVariable("Path", "User") -split ";") -notcontains $lb)) {
+        [Environment]::SetEnvironmentVariable("Path", (([Environment]::GetEnvironmentVariable("Path", "User"), $lb) | Where-Object { $_ }) -join ";", "User")
+        Ok "added $lb to your PATH"
+    }
+
     # ---- Step 3: GitHub sign-in
     Say "Step 3 of ${Total}: GitHub sign-in..."
     gh auth status *> $null
@@ -93,6 +100,8 @@ function Install-VideoEditor {
     Ok "access confirmed"
 
     # ---- Step 5: workspace folder and plugin
+    # Tested with a brand-new Claude config that was never signed in: "plugin marketplace add" and
+    # "plugin install" both work without a Claude sign-in. Sign-in happens when Claude starts in Step 6.
     Say "Step 5 of ${Total}: installing the Pugh.ai Video Editor plugin..."
     New-Item -ItemType Directory -Force -Path $Home2 | Out-Null
     Set-Location $Home2
@@ -118,6 +127,11 @@ function Install-VideoEditor {
 
     # ---- Step 6: start setup
     Say "Step 6 of ${Total}: starting Claude. It will set up the rest, one step at a time."
+    Write-Host ""
+    Write-Host "Next time, to open the editor:" -ForegroundColor White
+    Write-Host "  cd `$HOME\VideoEditor"
+    Write-Host "  claude -c"
+    Write-Host ""
     if ($env:INSTALL_NO_LAUNCH) { Ok "test mode: not starting Claude"; return }
     Write-Host "  If Claude asks you to sign in, click Authorize in the browser."
     claude "/video-editor:editor-setup"

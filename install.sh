@@ -68,6 +68,18 @@ else
   ok "Claude Code installed"
 fi
 
+# Make Homebrew and ~/.local/bin permanent for every new Terminal window (only adds lines that are missing).
+touch "$HOME/.zprofile"
+BREW_LINE='eval "$(/opt/homebrew/bin/brew shellenv)"'
+LOCAL_LINE='export PATH="$HOME/.local/bin:$PATH"'
+[ -x /opt/homebrew/bin/brew ] && { grep -qxF "$BREW_LINE" "$HOME/.zprofile" || printf '
+%s
+' "$BREW_LINE" >> "$HOME/.zprofile"; }
+grep -qxF "$LOCAL_LINE" "$HOME/.zprofile" || printf '
+%s
+' "$LOCAL_LINE" >> "$HOME/.zprofile"
+ok "new Terminal windows will find brew and claude (saved in ~/.zprofile)"
+
 # ---- Step 3: GitHub sign-in
 say "Step 3 of $TOTAL: GitHub sign-in..."
 if gh auth status >/dev/null 2>&1; then ok "already signed in to GitHub"
@@ -87,6 +99,8 @@ fi
 ok "access confirmed"
 
 # ---- Step 5: workspace folder and plugin
+# Tested with a brand-new Claude config that was never signed in: "plugin marketplace add" and
+# "plugin install" both work without a Claude sign-in. Sign-in happens when Claude starts in Step 6.
 say "Step 5 of $TOTAL: installing the Pugh.ai Video Editor plugin..."
 mkdir -p "$HOME_DIR" && cd "$HOME_DIR" || stop_here 5 "could not create $HOME_DIR." "Check that your home folder is writable."
 if claude plugin marketplace list 2>/dev/null | grep -q "$MARKET"; then ok "kit source already added"
@@ -101,6 +115,12 @@ ok "workspace folder: $HOME_DIR"
 
 # ---- Step 6: start setup
 say "Step 6 of $TOTAL: starting Claude. It will set up the rest, one step at a time."
+printf '
+\033[1mNext time, to open the editor:\033[0m
+  cd ~/VideoEditor
+  claude -c
+
+'
 if [ -n "$INSTALL_NO_LAUNCH" ]; then ok "test mode: not starting Claude"; exit 0; fi
 echo "  If Claude asks you to sign in, click Authorize in the browser."
 exec claude "/video-editor:editor-setup" </dev/tty
