@@ -1,6 +1,6 @@
-# Video Editor installer
+# Pugh.ai Video Editor installer
 
-One-line installers for the Video Editor kit. They contain no editor code: they only install the tools you need (Git, GitHub CLI, Claude Code), help you sign in to GitHub, and add the kit you were invited to.
+One-line installers for the Pugh.ai Video Editor kit. They contain no editor code: they only install the tools you need (Git, GitHub CLI, Claude Code), help you sign in to GitHub, and add the kit you were invited to.
 
 You need a paid Claude account and a GitHub account that has accepted your invite.
 

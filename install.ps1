@@ -1,4 +1,4 @@
-# Video Editor one-line installer for Windows. Run it in a normal PowerShell window (not "as administrator"):
+# Pugh.ai Video Editor one-line installer for Windows. Run it in a normal PowerShell window (not "as administrator"):
 #   irm https://raw.githubusercontent.com/pughs-editor/install/main/install.ps1 | iex
 # Safe to run again: it skips anything that is already done. It contains no editor code.
 
@@ -37,7 +37,7 @@ function Install-VideoEditor {
     }
     Refresh-Path
     Write-Host ""
-    Write-Host "Video Editor installer. $Total short steps. You can stop any time with Ctrl+C." -ForegroundColor White
+    Write-Host "Pugh.ai Video Editor installer. $Total short steps. You can stop any time with Ctrl+C." -ForegroundColor White
 
     # ---- Step 1: Git and GitHub CLI
     Say "Step 1 of ${Total}: checking Git and the GitHub tool..."
@@ -61,7 +61,7 @@ function Install-VideoEditor {
         try { Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression } catch { }
         Refresh-Path
         if (-not (Have "claude")) {
-            Stop-Here 2 "Claude Code did not install." @("Close this window and open a new PowerShell.", "Type: irm https://claude.ai/install.ps1 | iex", "Then run the Video Editor line again.")
+            Stop-Here 2 "Claude Code did not install." @("Close this window and open a new PowerShell.", "Type: irm https://claude.ai/install.ps1 | iex", "Then run the Pugh.ai Video Editor line again.")
             return
         }
         Ok "Claude Code installed"
@@ -84,7 +84,7 @@ function Install-VideoEditor {
     gh auth setup-git | Out-Null
 
     # ---- Step 4: access to the private kit
-    Say "Step 4 of ${Total}: checking you can see the Video Editor kit..."
+    Say "Step 4 of ${Total}: checking you can see the Pugh.ai Video Editor kit..."
     gh repo view $Repo --json name *> $null
     if ($LASTEXITCODE -ne 0) {
         Stop-Here 4 "your GitHub account cannot see the kit yet." @("Accept your GitHub invite email first (search your inbox for an invitation from pughs-editor).", "Make sure you signed in with the same GitHub account the invite was sent to.", "If you cannot find the email, tell the seller your GitHub username.")
@@ -93,7 +93,7 @@ function Install-VideoEditor {
     Ok "access confirmed"
 
     # ---- Step 5: workspace folder and plugin
-    Say "Step 5 of ${Total}: installing the Video Editor plugin..."
+    Say "Step 5 of ${Total}: installing the Pugh.ai Video Editor plugin..."
     New-Item -ItemType Directory -Force -Path $Home2 | Out-Null
     Set-Location $Home2
     $markets = (claude plugin marketplace list 2>$null) -join "`n"
