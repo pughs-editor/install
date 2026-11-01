@@ -55,6 +55,38 @@ add_brew_path
 echo
 echo "Pugh.ai Video Editor installer. $TOTAL short steps. You can stop any time with Control+C."
 
+# Turn on automatic plugin updates for the kit. Claude Code's documented key is "autoUpdate" on the marketplace's
+# entry under "extraKnownMarketplaces" in a settings file. Merges into the user's settings.json with osascript (JXA,
+# built into every Mac), keeps a backup, touches nothing else, and fails (changing nothing) if the file cannot be parsed.
+enable_autoupdate() {
+  local dir js out
+  dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  mkdir -p "$dir" || return 1
+  js="$(mktemp -t veau)" || return 1
+  cat >"$js" <<'JXA'
+ObjC.import('Foundation');
+function run(argv) {
+  var path = argv[0], market = argv[1], repo = argv[2];
+  var fm = $.NSFileManager.defaultManager, obj = {};
+  if (fm.fileExistsAtPath(path)) {
+    var t = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, null));
+    if (t && t.trim()) { obj = JSON.parse(t); }
+    var bak = path + '.bak-videoeditor';
+    if (!fm.fileExistsAtPath(bak)) { fm.copyItemAtPathToPathError(path, bak, null); }
+  }
+  if (!obj.extraKnownMarketplaces) { obj.extraKnownMarketplaces = {}; }
+  if (!obj.extraKnownMarketplaces[market]) { obj.extraKnownMarketplaces[market] = { source: { source: 'github', repo: repo } }; }
+  obj.extraKnownMarketplaces[market].autoUpdate = true;
+  $(JSON.stringify(obj, null, 2)).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, null);
+  return 'ok';
+}
+JXA
+  out="$(osascript -l JavaScript "$js" "$dir/settings.json" "$MARKET" "$REPO" 2>/dev/null)"
+  local rc=$?
+  rm -f "$js"
+  [ "$rc" -eq 0 ] && [ "$out" = "ok" ]
+}
+
 # ---- Step 1: Homebrew, Git, GitHub CLI
 say "Step 1 of $TOTAL: checking Homebrew, Git and the GitHub tool..."
 if have brew; then ok "Homebrew is already installed"
@@ -128,6 +160,10 @@ fi
 if claude plugin list 2>/dev/null | grep -q "video-editor@"; then ok "plugin already installed"
 else
   claude plugin install "$PLUGIN" || stop_here 5 "could not install the plugin." "Run the line again. If it fails twice, tell the seller exactly what you see."
+fi
+if enable_autoupdate; then ok "Updates install automatically."
+else printf '  Note: could not turn on automatic updates. Later, in Claude Code, type /plugin, open Marketplaces, choose video-editor-kit, then Enable auto-update. Until then, /video-editor:editor-update gets new versions.
+'
 fi
 ok "workspace folder: $HOME_DIR"
 

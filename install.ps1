@@ -43,6 +43,32 @@ function Install-VideoEditor {
         return $out
     }
     $ErrorActionPreference = 'Continue'   # the official Claude Code installer used to leave this as Stop
+    # Turn on automatic plugin updates for the kit. Claude Code's documented key is "autoUpdate" on the marketplace's
+    # entry under "extraKnownMarketplaces" in a settings file. Merges into the user's settings.json, keeps a backup,
+    # touches nothing else, and returns $false (changing nothing) if the file cannot be parsed.
+    function Enable-AutoUpdate {
+        try {
+            $dir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+            $file = Join-Path $dir "settings.json"
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            $obj = [pscustomobject]@{}
+            if (Test-Path $file) {
+                $raw = [IO.File]::ReadAllText($file)
+                if ($raw.Trim()) { $obj = $raw | ConvertFrom-Json -ErrorAction Stop }
+                if (-not (Test-Path "$file.bak-videoeditor")) { Copy-Item $file "$file.bak-videoeditor" }
+            }
+            if (-not $obj.PSObject.Properties["extraKnownMarketplaces"]) { $obj | Add-Member -NotePropertyName extraKnownMarketplaces -NotePropertyValue ([pscustomobject]@{}) }
+            $mk = $obj.extraKnownMarketplaces
+            if (-not $mk.PSObject.Properties[$Market]) {
+                $mk | Add-Member -NotePropertyName $Market -NotePropertyValue ([pscustomobject]@{ source = [pscustomobject]@{ source = "github"; repo = $Repo } })
+            }
+            $entry = $mk.PSObject.Properties[$Market].Value
+            $entry | Add-Member -NotePropertyName autoUpdate -NotePropertyValue $true -Force
+            $json = $obj | ConvertTo-Json -Depth 30
+            [IO.File]::WriteAllText($file, $json, (New-Object Text.UTF8Encoding($false)))   # UTF-8 without BOM
+            return $true
+        } catch { return $false }
+    }
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -162,6 +188,8 @@ function Install-VideoEditor {
             return
         }
     }
+    if (Enable-AutoUpdate) { Ok "Updates install automatically." }
+    else { Write-Host "  Note: could not turn on automatic updates. Later, in Claude Code, type /plugin, open Marketplaces, choose video-editor-kit, then Enable auto-update. Until then, /video-editor:editor-update gets new versions." -ForegroundColor Yellow }
     Ok "workspace folder: $Home2"
 
     # ---- Step 6: start setup
