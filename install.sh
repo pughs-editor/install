@@ -168,13 +168,16 @@ fi
 ok "workspace folder: $HOME_DIR"
 
 # ---- Step 6: start setup
-say "Step 6 of $TOTAL: starting Claude. It will set up the rest, one step at a time."
+say "Step 6 of $TOTAL: almost done."
 printf '
 \033[1mNext time, to open the editor:\033[0m
   cd ~/VideoEditor
   claude -c
 
 '
-if [ -n "$INSTALL_NO_LAUNCH" ]; then ok "test mode: not starting Claude"; exit 0; fi
-echo "  If Claude asks you to sign in, click Authorize in the browser."
-exec claude "/video-editor:editor-setup" </dev/tty
+# Claude is NOT launched from inside this piped installer: on macOS it crashed there (Bun "EINVAL: invalid argument, kqueue").
+# The user starts it themselves in a normal Terminal prompt with the line below.
+printf '\033[1;32mAll set!\033[0m Last step: copy this line, paste it and press Return:\n\n'
+printf '  \033[1mcd ~/VideoEditor && claude "/video-editor:editor-setup"\033[0m\n\n'
+echo "If Claude asks you to sign in, click Authorize in the browser."
+exit 0
