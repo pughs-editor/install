@@ -80,7 +80,7 @@ say "Step 2 of $TOTAL: checking Claude Code..."
 if have claude; then ok "Claude Code is already installed"
 else
   say "  Installing Claude Code (official installer)..."
-  curl -fsSL https://claude.ai/install.sh | bash </dev/tty
+  bash -c "$(curl -fsSL https://claude.ai/install.sh)" </dev/tty
   add_brew_path
   have claude || stop_here 2 "Claude Code did not install." "Close Terminal and open it again." "Type: curl -fsSL https://claude.ai/install.sh | bash" "Then run the Pugh.ai Video Editor line again."
   ok "Claude Code installed"
