@@ -55,13 +55,79 @@ add_brew_path
 echo
 echo "Pugh.ai Video Editor installer. $TOTAL short steps. You can stop any time with Control+C."
 
+# Turn "autoUpdate": true on for the video editor's marketplace entry in JSON files. Keeps every other value, keeps a
+# .bak-videoeditor copy, leaves a file it cannot parse untouched. Args: market repo, then "file:create:top" triples.
+read -r -d '' MERGE <<'PY'
+import json, os, shutil, sys
+
+market, repo = sys.argv[1], sys.argv[2]
+
+
+def set_autoupdate(path, create, top):
+    try:
+        data = {}
+        if os.path.exists(path):
+            raw = open(path, encoding="utf-8").read()
+            if raw.strip():
+                data = json.loads(raw)
+            if not isinstance(data, dict):
+                return "unreadable"
+        elif not create:
+            return "skipped"
+        if top:
+            mk = data
+        else:
+            if "extraKnownMarketplaces" not in data:
+                if not create:
+                    return "skipped"
+                data["extraKnownMarketplaces"] = {}
+            mk = data["extraKnownMarketplaces"]
+        if market not in mk:
+            if not create:
+                return "skipped"
+            mk[market] = {"source": {"source": "github", "repo": repo}}
+        if mk[market].get("autoUpdate") is True:
+            return "already"
+        mk[market]["autoUpdate"] = True
+        if os.path.exists(path) and not os.path.exists(path + ".bak-videoeditor"):
+            shutil.copy2(path, path + ".bak-videoeditor")
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        return "changed"
+    except Exception:
+        return "unreadable"
+
+
+for spec in sys.argv[3:]:
+    path, create, top = spec.rsplit(":", 2)
+    print(path + "\t" + set_autoupdate(path, create == "1", top == "1"))
+PY
+
 # Turn on automatic plugin updates for the kit. Claude Code's documented key is "autoUpdate" on the marketplace's
 # entry under "extraKnownMarketplaces" in a settings file. Merges into the user's settings.json with osascript (JXA,
 # built into every Mac), keeps a backup, touches nothing else, and fails (changing nothing) if the file cannot be parsed.
 enable_autoupdate() {
-  local dir js out
+  local dir js out py c first n
+  local specs=()
   dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
   mkdir -p "$dir" || return 1
+  # Preferred: Python (every Mac with Git has python3). Sets autoUpdate in settings.json AND in Claude's own
+  # plugins/known_marketplaces.json, and in a project settings file inside the workspace if that names the kit.
+  for c in python3 python; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import json' >/dev/null 2>&1; then py="$c"; break; fi
+  done
+  if [ -n "$py" ]; then
+    specs=("$dir/settings.json:1:0" "$dir/plugins/known_marketplaces.json:0:1")
+    for n in settings.json settings.local.json; do [ -f "$HOME_DIR/.claude/$n" ] && specs+=("$HOME_DIR/.claude/$n:0:0"); done
+    out="$("$py" -c "$MERGE" "$MARKET" "$REPO" "${specs[@]}")"
+    first="$(printf '%s
+' "$out" | sed -n 1p | cut -f2)"
+    [ -n "$out" ] && [ "$first" != "unreadable" ] && return 0
+    return 1
+  fi
+  # Fallback: osascript (JXA, built into every Mac); settings.json only.
   js="$(mktemp -t veau)" || return 1
   cat >"$js" <<'JXA'
 ObjC.import('Foundation');

@@ -43,31 +43,86 @@ function Install-VideoEditor {
         return $out
     }
     $ErrorActionPreference = 'Continue'   # the official Claude Code installer used to leave this as Stop
-    # Turn on automatic plugin updates for the kit. Claude Code's documented key is "autoUpdate" on the marketplace's
-    # entry under "extraKnownMarketplaces" in a settings file. Merges into the user's settings.json, keeps a backup,
-    # touches nothing else, and returns $false (changing nothing) if the file cannot be parsed.
-    function Enable-AutoUpdate {
+    # ---- JSON helpers. Windows PowerShell 5.1's ConvertFrom-Json turns date-looking strings into dates and
+    # ConvertTo-Json then writes them back in a different format, which would damage Claude's own files.
+    # JavaScriptSerializer keeps every value exactly as it is.
+    try { Add-Type -AssemblyName System.Web.Extensions } catch { }
+    function New-Ser { $s = New-Object System.Web.Script.Serialization.JavaScriptSerializer; $s.MaxJsonLength = [int]::MaxValue; $s.RecursionLimit = 200; return $s }
+    function Format-Json([string]$json) {
+        $sb = New-Object System.Text.StringBuilder
+        $chars = $json.ToCharArray()
+        $indent = 0; $inStr = $false; $esc = $false
+        for ($i = 0; $i -lt $chars.Length; $i++) {
+            $c = $chars[$i]
+            if ($inStr) {
+                [void]$sb.Append($c)
+                if ($esc) { $esc = $false } elseif ($c -eq [char]92) { $esc = $true } elseif ($c -eq '"') { $inStr = $false }
+                continue
+            }
+            if (($c -eq '{' -and $i + 1 -lt $chars.Length -and $chars[$i + 1] -eq '}') -or ($c -eq '[' -and $i + 1 -lt $chars.Length -and $chars[$i + 1] -eq ']')) {
+                [void]$sb.Append($c).Append($chars[$i + 1]); $i++; continue   # empty {} or []
+            }
+            switch ($c) {
+                '"' { $inStr = $true; [void]$sb.Append($c) }
+                '{' { $indent++; [void]$sb.Append($c).Append("`n").Append(' ' * (2 * $indent)) }
+                '[' { $indent++; [void]$sb.Append($c).Append("`n").Append(' ' * (2 * $indent)) }
+                '}' { $indent--; [void]$sb.Append("`n").Append(' ' * (2 * $indent)).Append($c) }
+                ']' { $indent--; [void]$sb.Append("`n").Append(' ' * (2 * $indent)).Append($c) }
+                ',' { [void]$sb.Append($c).Append("`n").Append(' ' * (2 * $indent)) }
+                ':' { [void]$sb.Append(': ') }
+                default { if (-not [char]::IsWhiteSpace($c)) { [void]$sb.Append($c) } }
+            }
+        }
+        return $sb.ToString()
+    }
+    # Turn "autoUpdate": true on for the video editor's marketplace entry in one JSON file.
+    # $create: add the entry (with its GitHub source) if the file has none. Returns: changed | already | skipped | unreadable
+    function Set-AutoUpdate([string]$file, [bool]$create, [bool]$topLevel) {
         try {
-            $dir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
-            $file = Join-Path $dir "settings.json"
-            New-Item -ItemType Directory -Force -Path $dir | Out-Null
-            $obj = [pscustomobject]@{}
+            $ser = New-Ser
+            $obj = $ser.DeserializeObject('{}')   # plain .NET dictionaries (not PowerShell-wrapped), so Serialize can write them
             if (Test-Path $file) {
                 $raw = [IO.File]::ReadAllText($file)
-                if ($raw.Trim()) { $obj = $raw | ConvertFrom-Json -ErrorAction Stop }
-                if (-not (Test-Path "$file.bak-videoeditor")) { Copy-Item $file "$file.bak-videoeditor" }
+                if ($raw.Trim()) { $obj = $ser.DeserializeObject($raw) }
+            } elseif (-not $create) { return "skipped" }
+            # known_marketplaces.json keeps the entries at the top level; settings files keep them under extraKnownMarketplaces
+            if ($topLevel) { $mk = $obj } else {
+                if (-not $obj.ContainsKey("extraKnownMarketplaces")) {
+                    if (-not $create) { return "skipped" }
+                    $obj["extraKnownMarketplaces"] = $ser.DeserializeObject('{}')
+                }
+                $mk = $obj["extraKnownMarketplaces"]
             }
-            if (-not $obj.PSObject.Properties["extraKnownMarketplaces"]) { $obj | Add-Member -NotePropertyName extraKnownMarketplaces -NotePropertyValue ([pscustomobject]@{}) }
-            $mk = $obj.extraKnownMarketplaces
-            if (-not $mk.PSObject.Properties[$Market]) {
-                $mk | Add-Member -NotePropertyName $Market -NotePropertyValue ([pscustomobject]@{ source = [pscustomobject]@{ source = "github"; repo = $Repo } })
+            if (-not $mk.ContainsKey($Market)) {
+                if (-not $create) { return "skipped" }
+                $mk[$Market] = $ser.DeserializeObject('{"source":{"source":"github","repo":"' + $Repo + '"}}')
             }
-            $entry = $mk.PSObject.Properties[$Market].Value
-            $entry | Add-Member -NotePropertyName autoUpdate -NotePropertyValue $true -Force
-            $json = $obj | ConvertTo-Json -Depth 30
-            [IO.File]::WriteAllText($file, $json, (New-Object Text.UTF8Encoding($false)))   # UTF-8 without BOM
-            return $true
-        } catch { return $false }
+            $entry = $mk[$Market]
+            if ($entry.ContainsKey("autoUpdate") -and $entry["autoUpdate"] -eq $true) { return "already" }
+            $entry["autoUpdate"] = $true
+            if ((Test-Path $file) -and -not (Test-Path "$file.bak-videoeditor")) { Copy-Item $file "$file.bak-videoeditor" }
+            New-Item -ItemType Directory -Force -Path (Split-Path $file) | Out-Null
+            [IO.File]::WriteAllText($file, (Format-Json ($ser.Serialize($obj))), (New-Object Text.UTF8Encoding($false)))
+            return "changed"
+        } catch { return "unreadable" }
+    }
+
+    # Turn on automatic plugin updates for the kit. Claude Code reads "autoUpdate" from the marketplace's entry under
+    # "extraKnownMarketplaces" in a settings file, and keeps its own copy in plugins\known_marketplaces.json; both are set.
+    # A project/local settings file in the workspace that names the marketplace without autoUpdate would override the user
+    # setting, so those are fixed too. Merges (never replaces), keeps a .bak-videoeditor copy, and leaves any file it
+    # cannot parse untouched. Returns $false only if the user's settings.json could not be read.
+    function Enable-AutoUpdate {
+        $Cfg = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME ".claude" }
+        $r1 = Set-AutoUpdate (Join-Path $Cfg "settings.json") $true $false
+        [void](Set-AutoUpdate (Join-Path (Join-Path $Cfg "plugins") "known_marketplaces.json") $false $true)
+        foreach ($d in @($Home2)) {
+            foreach ($n in "settings.json", "settings.local.json") {
+                $f = Join-Path (Join-Path $d ".claude") $n
+                if (Test-Path $f) { [void](Set-AutoUpdate $f $false $false) }
+            }
+        }
+        return ($r1 -ne "unreadable")
     }
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
